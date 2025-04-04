@@ -1,0 +1,9 @@
+transformers
+torchvision
+torch
+Pillow
+accelerate
+sentencepiece
+protobuf
+huggingface_hub
+numpy
