@@ -707,7 +707,7 @@ if __name__ == "__main__":
             # Show which file is currently being processed (with carriage return)
             relative_path = image_path.relative_to(input_dir)
             status = f"Working: {action} {relative_path} ({idx}/{total_count})"
-            padding = " " * 30  # Add extra spaces to ensure previous output is cleared
+            padding = " " * 100  # Much more padding to ensure the line is cleared
             print(f"{status}{padding}", end="\r")
             
             try:
@@ -739,11 +739,16 @@ if __name__ == "__main__":
                         # Write caption to individual text file
                         output_file.write(f"{caption}\n\n")
                 
-                # Print completed file on a new line to maintain history
+                # First clear the line completely to remove the "Working" status
+                print(" " * 150, end="\r")
+                # Then print completed file on a new line to maintain history
                 print(f"Completed: {action} {image_path.name}")
                 
             except Exception as e:
                 error_count += 1
+                # First clear the line completely to remove the "Working" status
+                print(" " * 150, end="\r")
+                # Then print the error
                 print(f"Error: {image_path.name} - {str(e)}")
                 continue
         
