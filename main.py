@@ -15,6 +15,8 @@ import os
 import torchvision.transforms.functional as TVF
 import contextlib
 from typing import Union, List
+import time
+from datetime import timedelta
 
 from utils import download_hg_model
 
@@ -677,7 +679,19 @@ if __name__ == "__main__":
         error_count = 0
         total_count = len(image_files)
         
+        # Time tracking variables
+        start_time = time.time()
+        processed_time = 0
+        
+        # Function to format time remaining
+        def format_time(seconds):
+            if seconds < 0:
+                return "Unknown"
+            return str(timedelta(seconds=int(seconds)))
+        
         for idx, image_path in enumerate(image_files, 1):
+            file_start_time = time.time()
+            
             # Create output file path with same name but .txt extension
             output_file_path = image_path.with_suffix('.txt')
             
@@ -699,15 +713,35 @@ if __name__ == "__main__":
                     # Print skipped files on a new line to maintain history
                     print(f"Skipped: {image_path.name} (file already exists)")
                     skipped_count += 1
+                    
+                    # Calculate and display time estimates
+                    elapsed = time.time() - start_time
+                    if processed_count + appended_count > 0:
+                        avg_time = processed_time / (processed_count + appended_count)
+                        remaining_files = total_count - idx
+                        est_time = avg_time * remaining_files
+                        
+                        # Clear line and show progress with time estimate
+                        print(" " * 150, end="\r")
+                        print(f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors] - Elapsed: {format_time(elapsed)} - Remaining: {format_time(est_time)}", end="\r")
+                    
                     continue
             else:
                 action = "Processing"
                 processed_count += 1
             
+            # Calculate time estimates
+            elapsed = time.time() - start_time
+            est_time = "Calculating..."
+            if processed_count + appended_count > 0:
+                avg_time = processed_time / (processed_count + appended_count)
+                remaining_files = total_count - idx + 1  # +1 because we're including the current file
+                est_time = format_time(avg_time * remaining_files)
+            
             # Show which file is currently being processed (with carriage return)
             relative_path = image_path.relative_to(input_dir)
-            status = f"Working: {action} {relative_path} ({idx}/{total_count})"
-            padding = " " * 100  # Much more padding to ensure the line is cleared
+            status = f"Working: {action} {relative_path} ({idx}/{total_count}) - Elapsed: {format_time(elapsed)} - Remaining: {est_time}"
+            padding = " " * 50  # Much more padding to ensure the line is cleared
             print(f"{status}{padding}", end="\r")
             
             try:
@@ -739,10 +773,14 @@ if __name__ == "__main__":
                         # Write caption to individual text file
                         output_file.write(f"{caption}\n\n")
                 
+                # Calculate how long this file took
+                file_time = time.time() - file_start_time
+                processed_time += file_time
+                
                 # First clear the line completely to remove the "Working" status
                 print(" " * 150, end="\r")
                 # Then print completed file on a new line to maintain history
-                print(f"Completed: {action} {image_path.name}")
+                print(f"Completed: {action} {image_path.name} in {format_time(file_time)}")
                 
             except Exception as e:
                 error_count += 1
@@ -752,9 +790,13 @@ if __name__ == "__main__":
                 print(f"Error: {image_path.name} - {str(e)}")
                 continue
         
+        # Calculate total elapsed time
+        total_elapsed = time.time() - start_time
+        
         # Print summary at the end
-        print(f"\nFinished processing images in {input_dir}")
+        print("\nFinished processing images in {input_dir}")
         print(f"Processed: {processed_count}, Appended: {appended_count}, Skipped: {skipped_count}, Errors: {error_count}, Total: {total_count}")
+        print(f"Total time: {format_time(total_elapsed)}")
     else:
         print(f"Invalid input image type: {input_image_type}")
         exit(1)
