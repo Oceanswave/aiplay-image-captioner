@@ -571,48 +571,83 @@ if __name__ == "__main__":
         file_exists = output_file_path.exists()
         
         # Determine file mode based on options
+        action = ""
         file_mode = "w"  # Default is write (create or overwrite)
         if file_exists:
             if args.append:
                 file_mode = "a"  # Append to existing file
-                if args.verbose:
-                    print(f"Appending to existing file: {output_file_path}")
+                action = "Appending"
+                appended_count = 1
             elif args.overwrite:
-                print(f"Overwriting existing file: {output_file_path}")
+                action = "Overwriting"
+                processed_count = 1
             else:
-                print(f"Skipping {input_image_path} - output file already exists. Use --overwrite to force processing or --append to add to it.")
+                if not args.verbose:
+                    # Print on a new line to keep history
+                    print(f"Skipped: {input_image_path.name} (already exists)")
+                skipped_count = 1
+                # Show current progress on the same line
+                progress = f"Progress: 1 processed, 0 appended, 1 skipped, 0 errors"
+                padding = " " * 20  # Add extra spaces to ensure previous output is cleared
+                print(f"{progress}{padding}", end="\r")
                 exit(0)
+        else:
+            action = "Processing"
+            processed_count = 1
         
-        input_image = Image.open(input_image_path)
+        # Show which file is currently being processed (with carriage return)
+        if not args.verbose:
+            # Show file being worked on with carriage return (overwrites the line)
+            relative_path = input_image_path.relative_to(input_image_path.parent)
+            status = f"Working: {action} {relative_path} (1/1)"
+            padding = " " * 30
+            print(f"{status}{padding}", end="\r")
         
-        # Convert RGBA images to RGB to avoid channel mismatch
-        if input_image.mode == "RGBA":
-            input_image = input_image.convert("RGB")
-
-        # Process each caption type
-        with open(output_file_path, file_mode, encoding="utf-8") as output_file:
-
-            for caption_type in args.caption_type:
-                print(f"\nGenerating {caption_type} caption...")
-                
-                # Call the function
-                prompt_str, caption = stream_chat(
-                    input_image,
-                    caption_type,
-                    args.caption_length,
-                    extra_options,
-                    name_input,
-                    custom_prompt,
-                    clip_model,
-                    tokenizer,
-                    text_model,
-                    image_adapter,
-                )
-                
-                # Write caption to file
-                output_file.write(f"{caption}\n\n")
+        try:
+            input_image = Image.open(input_image_path)
             
-        print(f"Captions saved to {output_file_path}")
+            # Convert RGBA images to RGB to avoid channel mismatch
+            if input_image.mode == "RGBA":
+                input_image = input_image.convert("RGB")
+            
+            # Process each caption type
+            with open(output_file_path, file_mode, encoding="utf-8") as output_file:
+                for caption_type in args.caption_type:
+                    if args.verbose:
+                        print(f"Generating {caption_type} caption...")
+                    
+                    prompt_str, caption = stream_chat(
+                        input_image,
+                        caption_type,
+                        args.caption_length,
+                        extra_options,
+                        name_input,
+                        custom_prompt,
+                        clip_model,
+                        tokenizer,
+                        text_model,
+                        image_adapter,
+                    )
+                    
+                    # Write caption to individual text file
+                    output_file.write(f"{caption}\n\n")
+            
+            # Print completed file info on a new line to keep history
+            if not args.verbose:
+                print(f"Complete: {action} {input_image_path.name}")
+            else:
+                print(f"Captions saved to {output_file_path}")
+            
+        except Exception as e:
+            error_count = 1
+            print(f"\nError: {input_image_path.name} - {str(e)}")
+            exit(1)
+        
+        # Show current progress (overwrites the line)
+        if not args.verbose:
+            progress = f"Progress: 1 processed, 0 appended, 1 skipped, 0 errors"
+            padding = " " * 30
+            print(f"{progress}{padding}", end="\r")
 
     # Process images in a directory
     elif input_image_type == "directory":
@@ -650,34 +685,30 @@ if __name__ == "__main__":
             file_exists = output_file_path.exists()
             
             # Determine file mode based on options
+            action = ""
             file_mode = "w"  # Default is write (create or overwrite)
             if file_exists:
                 if args.append:
                     file_mode = "a"  # Append to existing file
-                    if args.verbose:
-                        print(f"Appending to existing file: {output_file_path}")
+                    action = "Appending to"
                     appended_count += 1
                 elif args.overwrite:
-                    if args.verbose:
-                        print(f"Overwriting existing file: {output_file_path}")
+                    action = "Overwriting"
                     processed_count += 1
                 else:
-                    if args.verbose:
-                        print(f"Skipping {image_path.name} - output file already exists")
+                    # Print skipped files on a new line to maintain history
+                    print(f"Skipped: {image_path.name} (file already exists)")
                     skipped_count += 1
-                    # Show progress
-                    print(f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors]", end="\r")
                     continue
             else:
+                action = "Processing"
                 processed_count += 1
             
-            if args.verbose:
-                print(f"\nProcessing image: {image_path}")
-            else:
-                # Show progress - use relative path to keep output cleaner
-                relative_path = image_path.relative_to(input_dir)
-                # Clear the entire line before writing new content
-                print(f"Processing ({idx}/{total_count}): {relative_path} ", end="\r")
+            # Show which file is currently being processed (with carriage return)
+            relative_path = image_path.relative_to(input_dir)
+            status = f"Working: {action} {relative_path} ({idx}/{total_count})"
+            padding = " " * 30  # Add extra spaces to ensure previous output is cleared
+            print(f"{status}{padding}", end="\r")
             
             try:
                 input_image = Image.open(image_path)
@@ -708,22 +739,15 @@ if __name__ == "__main__":
                         # Write caption to individual text file
                         output_file.write(f"{caption}\n\n")
                 
-                if args.verbose:
-                    print(f"Captions saved to {output_file_path}")
+                # Print completed file on a new line to maintain history
+                print(f"Completed: {action} {image_path.name}")
                 
             except Exception as e:
                 error_count += 1
-                print(f"\nError processing image {image_path}: {e}")
+                print(f"Error: {image_path.name} - {str(e)}")
                 continue
-            
-            # Show progress after each file - use a single consistent progress format
-            # Add padding spaces to ensure any previous longer output is fully overwritten
-            status = f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors]"
-            padding = " " * 20  # Add extra spaces to ensure previous output is cleared
-            print(f"{status}{padding}", end="\r")
         
-        # Print final newline to avoid overwriting the progress display
-        print()
+        # Print summary at the end
         print(f"\nFinished processing images in {input_dir}")
         print(f"Processed: {processed_count}, Appended: {appended_count}, Skipped: {skipped_count}, Errors: {error_count}, Total: {total_count}")
     else:
