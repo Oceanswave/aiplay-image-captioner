@@ -196,6 +196,9 @@ def load_models(models_dir, llm_model_id):
     model_id = "google/siglip-so400m-patch14-384"
     clip_path = download_hg_model(models_dir, model_id, "clip")
 
+    if args.verbose:
+        print("Loading CLIP model...")
+    
     clip_model = AutoModel.from_pretrained(
         clip_path,
         trust_remote_code=True,
@@ -205,7 +208,8 @@ def load_models(models_dir, llm_model_id):
     clip_model = clip_model.vision_model
 
     assert (base_model_path / "clip_model.pt").exists()
-    print("Loading VLM's custom vision model")
+    if args.verbose:
+        print("Loading VLM's custom vision model")
     checkpoint = torch.load(base_model_path / "clip_model.pt", map_location='cpu', weights_only=True)
     checkpoint = {k.replace("_orig_mod.module.", ""): v for k, v in checkpoint.items()}
     clip_model.load_state_dict(checkpoint)
@@ -216,18 +220,21 @@ def load_models(models_dir, llm_model_id):
     clip_model.to(device)
 
     # Tokenizer
-    print("Loading tokenizer")
+    if args.verbose:
+        print("Loading tokenizer")
     tokenizer = AutoTokenizer.from_pretrained(
         base_model_path / "text_model", use_fast=True
     )
     assert isinstance(tokenizer, (PreTrainedTokenizer, PreTrainedTokenizerFast)), f"Tokenizer is of type {type(tokenizer)}"
 
     # LLM
-    print("Loading LLM")
-    print("Loading VLM's custom text model")
+    if args.verbose:
+        print("Loading LLM")
+        print("Loading VLM's custom text model")
     llm_model_checkpoint = download_hg_model(models_dir, llm_model_id, "LLM")
     assert (base_model_path / "clip_model.pt").exists()
-    print(f"Loading VLM's custom vision model from {llm_model_checkpoint}")
+    if args.verbose:
+        print(f"Loading VLM's custom vision model from {llm_model_checkpoint}")
     text_model = AutoModelForCausalLM.from_pretrained(
         llm_model_checkpoint, torch_dtype=torch_dtype
     )
@@ -235,7 +242,8 @@ def load_models(models_dir, llm_model_id):
     text_model.to(device)
 
     # Image Adapter
-    print("Loading image adapter")
+    if args.verbose:
+        print("Loading image adapter")
     image_adapter = ImageAdapter(
         clip_model.config.hidden_size, text_model.config.hidden_size, False, False, 38, False
     )
@@ -299,7 +307,8 @@ def stream_chat(
         prompt_str = custom_prompt.strip()
 
     # For debugging
-    print(f"Prompt: {prompt_str}")
+    if args.verbose:
+        print(f"Prompt: {prompt_str}")
 
     # Preprocess image
     # NOTE: I found the default processor for so400M to have worse results than just using PIL directly
@@ -392,7 +401,8 @@ def stream_chat(
     attention_mask = torch.ones_like(input_ids)
 
     # Debugging
-    print(f"Input to model: {repr(tokenizer.decode(input_ids[0]))}")
+    if args.verbose:
+        print(f"Input to model: {repr(tokenizer.decode(input_ids[0]))}")
 
     # Generate the caption
     generate_ids = text_model.generate(
@@ -489,6 +499,12 @@ def setup_parser():
         "-a",
         action="store_true",
         help="Append to existing caption files instead of skipping them",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed processing information",
     )
 
     return parser
@@ -622,8 +638,10 @@ if __name__ == "__main__":
         processed_count = 0
         skipped_count = 0
         appended_count = 0
+        error_count = 0
+        total_count = len(image_files)
         
-        for image_path in image_files:
+        for idx, image_path in enumerate(image_files, 1):
             # Create output file path with same name but .txt extension
             output_file_path = image_path.with_suffix('.txt')
             
@@ -635,19 +653,29 @@ if __name__ == "__main__":
             if file_exists:
                 if args.append:
                     file_mode = "a"  # Append to existing file
-                    print(f"Appending to existing file: {output_file_path}")
+                    if args.verbose:
+                        print(f"Appending to existing file: {output_file_path}")
                     appended_count += 1
                 elif args.overwrite:
-                    print(f"Overwriting existing file: {output_file_path}")
+                    if args.verbose:
+                        print(f"Overwriting existing file: {output_file_path}")
                     processed_count += 1
                 else:
-                    print(f"Skipping {image_path.name} - output file already exists")
+                    if args.verbose:
+                        print(f"Skipping {image_path.name} - output file already exists")
                     skipped_count += 1
+                    # Show progress
+                    print(f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors]", end="\r")
                     continue
             else:
                 processed_count += 1
             
-            print(f"\nProcessing image: {image_path}")
+            if args.verbose:
+                print(f"\nProcessing image: {image_path}")
+            else:
+                # Show progress
+                relative_path = image_path.relative_to(input_dir)
+                print(f"Processing ({idx}/{total_count}): {relative_path}", end="\r")
             
             try:
                 input_image = Image.open(image_path)
@@ -658,9 +686,9 @@ if __name__ == "__main__":
                 
                 # Process each caption type
                 with open(output_file_path, file_mode, encoding="utf-8") as output_file:
-
                     for caption_type in args.caption_type:
-                        print(f"Generating {caption_type} caption...")
+                        if args.verbose:
+                            print(f"Generating {caption_type} caption...")
                         
                         prompt_str, caption = stream_chat(
                             input_image,
@@ -678,14 +706,21 @@ if __name__ == "__main__":
                         # Write caption to individual text file
                         output_file.write(f"{caption}\n\n")
                 
-                print(f"Captions saved to {output_file_path}")
+                if args.verbose:
+                    print(f"Captions saved to {output_file_path}")
                 
             except Exception as e:
-                print(f"Error processing image {image_path}: {e}")
+                error_count += 1
+                print(f"\nError processing image {image_path}: {e}")
                 continue
+            
+            # Show progress after each file
+            print(f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors]", end="\r")
         
+        # Print final newline to avoid overwriting the progress display
+        print()
         print(f"\nFinished processing images in {input_dir}")
-        print(f"Processed: {processed_count}, Appended: {appended_count}, Skipped: {skipped_count}, Total: {processed_count + appended_count + skipped_count}")
+        print(f"Processed: {processed_count}, Appended: {appended_count}, Skipped: {skipped_count}, Errors: {error_count}, Total: {total_count}")
     else:
         print(f"Invalid input image type: {input_image_type}")
         exit(1)
