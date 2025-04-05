@@ -176,7 +176,7 @@ class ImageAdapter(nn.Module):
 if torch.cuda.is_available():
     device = torch.device("cuda")
     torch_dtype = torch.bfloat16
-    autocast = torch.cuda.amp.autocast
+    autocast = lambda: torch.amp.autocast(device_type='cuda')
 elif torch.backends.mps.is_available():
     device = torch.device("mps")
     torch_dtype = torch.float32  # MPS doesn't support bfloat16
@@ -575,7 +575,8 @@ if __name__ == "__main__":
         if file_exists:
             if args.append:
                 file_mode = "a"  # Append to existing file
-                print(f"Appending to existing file: {output_file_path}")
+                if args.verbose:
+                    print(f"Appending to existing file: {output_file_path}")
             elif args.overwrite:
                 print(f"Overwriting existing file: {output_file_path}")
             else:
@@ -673,9 +674,10 @@ if __name__ == "__main__":
             if args.verbose:
                 print(f"\nProcessing image: {image_path}")
             else:
-                # Show progress
+                # Show progress - use relative path to keep output cleaner
                 relative_path = image_path.relative_to(input_dir)
-                print(f"Processing ({idx}/{total_count}): {relative_path}", end="\r")
+                # Clear the entire line before writing new content
+                print(f"Processing ({idx}/{total_count}): {relative_path} ", end="\r")
             
             try:
                 input_image = Image.open(image_path)
@@ -714,8 +716,11 @@ if __name__ == "__main__":
                 print(f"\nError processing image {image_path}: {e}")
                 continue
             
-            # Show progress after each file
-            print(f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors]", end="\r")
+            # Show progress after each file - use a single consistent progress format
+            # Add padding spaces to ensure any previous longer output is fully overwritten
+            status = f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors]"
+            padding = " " * 20  # Add extra spaces to ensure previous output is cleared
+            print(f"{status}{padding}", end="\r")
         
         # Print final newline to avoid overwriting the progress display
         print()
