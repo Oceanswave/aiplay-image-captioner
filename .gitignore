@@ -176,5 +176,5 @@ cython_debug/
 # ignore themodels
 models/clip
 models/LLM
-models/joy_caption_two
-image.png
+models/Joy_caption_two
+image.*

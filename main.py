@@ -186,6 +186,8 @@ else:
     torch_dtype = torch.float32
     autocast = contextlib.nullcontext  # No autocasting on CPU
 
+print(f"Using device: {device}")
+
 
 def load_models(models_dir, llm_model_id):
     base_model_path = Path(models_dir, "Joy_caption_two")
@@ -428,9 +430,10 @@ def setup_parser():
     parser.add_argument(
         "--caption_type",
         type=str,
-        default="Descriptive",
+        nargs="+",
+        default=["Descriptive"],
         choices=CAPTION_TYPE_MAP.keys(),
-        help="Type of caption to generate",
+        help="Types of captions to generate (multiple values supported)",
     )
     parser.add_argument(
         "--caption_length",
@@ -474,6 +477,18 @@ def setup_parser():
         "--list_extra_options",
         action="store_true",
         help="List available extra options",
+    )
+    parser.add_argument(
+        "--overwrite",
+        "-o",
+        action="store_true",
+        help="Overwrite existing caption files",
+    )
+    parser.add_argument(
+        "--append",
+        "-a",
+        action="store_true",
+        help="Append to existing caption files instead of skipping them",
     )
 
     return parser
@@ -532,32 +547,59 @@ if __name__ == "__main__":
         if not input_image_path.is_file():
             print(f"Input image not found: {input_image_path}")
             exit(1)
-        input_image = Image.open(input_image_path)
-
-        # Call the function
-        prompt_str, caption = stream_chat(
-            input_image,
-            args.caption_type,
-            args.caption_length,
-            extra_options,
-            name_input,
-            custom_prompt,
-            clip_model,
-            tokenizer,
-            text_model,
-            image_adapter,
-        )
-
-        # Print the output file
+        
+        # Create output file path with same name but .txt extension
         output_file_path = input_image_path.with_suffix('.txt')
+        
+        # Check if output file exists
+        file_exists = output_file_path.exists()
+        
+        # Determine file mode based on options
+        file_mode = "w"  # Default is write (create or overwrite)
+        if file_exists:
+            if args.append:
+                file_mode = "a"  # Append to existing file
+                print(f"Appending to existing file: {output_file_path}")
+            elif args.overwrite:
+                print(f"Overwriting existing file: {output_file_path}")
+            else:
+                print(f"Skipping {input_image_path} - output file already exists. Use --overwrite to force processing or --append to add to it.")
+                exit(0)
+        
+        input_image = Image.open(input_image_path)
+        
+        # Convert RGBA images to RGB to avoid channel mismatch
+        if input_image.mode == "RGBA":
+            input_image = input_image.convert("RGB")
+
+        # Process each caption type
+        with open(output_file_path, file_mode, encoding="utf-8") as output_file:
+
+            for caption_type in args.caption_type:
+                print(f"\nGenerating {caption_type} caption...")
                 
-        # Write caption to individual text file
-        with open(output_file_path, "w", encoding="utf-8") as output_file:
-            output_file.write(f"{caption}{os.linesep}")
+                # Call the function
+                prompt_str, caption = stream_chat(
+                    input_image,
+                    caption_type,
+                    args.caption_length,
+                    extra_options,
+                    name_input,
+                    custom_prompt,
+                    clip_model,
+                    tokenizer,
+                    text_model,
+                    image_adapter,
+                )
+                
+                # Write caption to file
+                output_file.write(f"{caption}\n\n")
+            
+        print(f"Captions saved to {output_file_path}")
 
     # Process images in a directory
     elif input_image_type == "directory":
-        input_dir = Path(args.input_dir)
+        input_dir = Path(args.input_image)
         if not input_dir.is_dir():
             print(f"Input directory not found: {input_dir}")
             exit(1)
@@ -572,38 +614,73 @@ if __name__ == "__main__":
             print(f"No image files found in directory: {input_dir}")
             exit(1)
 
+        processed_count = 0
+        skipped_count = 0
+        appended_count = 0
+        
         for image_path in image_files:
+            # Create output file path with same name but .txt extension
+            output_file_path = image_path.with_suffix('.txt')
+            
+            # Check if output file exists
+            file_exists = output_file_path.exists()
+            
+            # Determine file mode based on options
+            file_mode = "w"  # Default is write (create or overwrite)
+            if file_exists:
+                if args.append:
+                    file_mode = "a"  # Append to existing file
+                    print(f"Appending to existing file: {output_file_path}")
+                    appended_count += 1
+                elif args.overwrite:
+                    print(f"Overwriting existing file: {output_file_path}")
+                    processed_count += 1
+                else:
+                    print(f"Skipping {image_path.name} - output file already exists")
+                    skipped_count += 1
+                    continue
+            else:
+                processed_count += 1
+            
             print(f"\nProcessing image: {image_path}")
-            input_image = Image.open(image_path)
             
             try:
-                prompt_str, caption = stream_chat(
-                    input_image,
-                    args.caption_type,
-                    args.caption_length,
-                    extra_options,
-                    name_input,
-                    custom_prompt,
-                    clip_model,
-                    tokenizer,
-                    text_model,
-                    image_adapter,
-                )
+                input_image = Image.open(image_path)
                 
-                # Create output file path with same name but .txt extension
-                output_file_path = image_path.with_suffix('.txt')
+                # Convert RGBA images to RGB to avoid channel mismatch
+                if input_image.mode == "RGBA":
+                    input_image = input_image.convert("RGB")
                 
-                # Write caption to individual text file
-                with open(output_file_path, "w", encoding="utf-8") as output_file:
-                    output_file.write(f"{caption}{os.linesep}")
+                # Process each caption type
+                with open(output_file_path, file_mode, encoding="utf-8") as output_file:
+
+                    for caption_type in args.caption_type:
+                        print(f"Generating {caption_type} caption...")
+                        
+                        prompt_str, caption = stream_chat(
+                            input_image,
+                            caption_type,
+                            args.caption_length,
+                            extra_options,
+                            name_input,
+                            custom_prompt,
+                            clip_model,
+                            tokenizer,
+                            text_model,
+                            image_adapter,
+                        )
+                        
+                        # Write caption to individual text file
+                        output_file.write(f"{caption}\n\n")
                 
-                print(f"Caption saved to {output_file_path}")
+                print(f"Captions saved to {output_file_path}")
                 
             except Exception as e:
                 print(f"Error processing image {image_path}: {e}")
                 continue
         
-        print(f"\nFinished processing all images in {input_dir}")
+        print(f"\nFinished processing images in {input_dir}")
+        print(f"Processed: {processed_count}, Appended: {appended_count}, Skipped: {skipped_count}, Total: {processed_count + appended_count + skipped_count}")
     else:
         print(f"Invalid input image type: {input_image_type}")
         exit(1)
