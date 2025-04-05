@@ -607,12 +607,17 @@ if __name__ == "__main__":
         # List of image file extensions
         image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"]
 
-        # Collect all image files in the directory
-        image_files = [f for f in input_dir.iterdir() if f.suffix.lower() in image_extensions]
+        # Collect all image files in the directory and subdirectories recursively
+        image_files = []
+        for ext in image_extensions:
+            image_files.extend(input_dir.glob(f"**/*{ext}"))
+            image_files.extend(input_dir.glob(f"**/*{ext.upper()}"))  # Also include uppercase extensions
 
         if not image_files:
-            print(f"No image files found in directory: {input_dir}")
+            print(f"No image files found in directory: {input_dir} (including subdirectories)")
             exit(1)
+        
+        print(f"Found {len(image_files)} images in {input_dir} and its subdirectories")
 
         processed_count = 0
         skipped_count = 0
