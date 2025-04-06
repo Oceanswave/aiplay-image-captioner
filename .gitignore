@@ -178,3 +178,5 @@ models/clip
 models/LLM
 models/Joy_caption_two
 image.*
+test_image.*
+test_images/*
