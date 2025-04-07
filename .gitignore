@@ -175,7 +175,7 @@ cython_debug/
 
 # ignore the models
 models
-!models/Joy_caption_two
+!models/README.md
 
 image.*
 test_image.*
