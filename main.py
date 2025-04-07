@@ -89,7 +89,7 @@ def setup_parser():
     parser.add_argument(
         "--llm_model_id",
         type=str,
-        default="Orenguteng/Llama-3.1-8B-Lexi-Uncensored-V2",
+        default="unsloth/Meta-Llama-3.1-8B-Instruct",
         help="HuggingFace model ID",
     )
     parser.add_argument(
