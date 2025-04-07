@@ -255,8 +255,6 @@ def process_images(
                             tokenizer,
                             text_model,
                             image_adapter,
-                            args.append,
-                            args.overwrite,
                             args.verbose,
                             autocast,
                         )
