@@ -7,3 +7,6 @@ sentencepiece
 protobuf
 huggingface_hub
 numpy
+matplotlib
+timm
+einops

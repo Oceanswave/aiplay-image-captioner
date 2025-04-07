@@ -173,10 +173,10 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# ignore themodels
-models/clip
-models/LLM
-models/Joy_caption_two
+# ignore the models
+models
+!models/Joy_caption_two
+
 image.*
 test_image.*
-test_images/*
+test_images
