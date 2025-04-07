@@ -238,7 +238,7 @@ def process_images(
                                 verbose=args.verbose,
                             )
                         )
-                        if args.append:
+                        if file_mode == "a":
                             output_file.write(f"{os.linesep}{os.linesep}{out_results}")
                         else:
                             output_file.write(f"{out_results}")
@@ -246,7 +246,7 @@ def process_images(
                         (out) = joy_caption_image(
                             device,
                             input_image,
-                            args.caption_type,
+                            task,
                             args.caption_length,
                             extra_options,
                             args.name_input,
@@ -258,7 +258,7 @@ def process_images(
                             args.verbose,
                             autocast,
                         )
-                        if args.append:
+                        if file_mode == "a":
                             output_file.write(f"{os.linesep}{os.linesep}{out}")
                         else:
                             output_file.write(f"{out}")
