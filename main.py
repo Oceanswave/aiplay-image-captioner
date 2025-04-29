@@ -57,7 +57,7 @@ def setup_parser():
     parser.add_argument(
         "--caption_length",
         type=str,
-        default="long",
+        default="short",
         choices=CAPTION_LENGTH_CHOICES,
         help="Length of the caption",
     )
@@ -120,6 +120,14 @@ def setup_parser():
         "-v",
         action="store_true",
         help="Show detailed processing information",
+    )
+    parser.add_argument(
+        "--tags",
+        "-t",
+        type=str,
+        nargs="+",
+        default=[],
+        help="Static tags to prepend to the output file, comma-separated.",
     )
 
     return parser
@@ -224,31 +232,39 @@ def process_images(
 
             # Process each caption type
             with open(output_file_path, file_mode, encoding="utf-8") as output_file:
+                # Write static tags first if in write/overwrite mode and tags are provided
+                wrote_static_tags = False
+                if file_mode == "w" and args.tags:
+                    output_file.write(", ".join(args.tags))
+                    wrote_static_tags = True
+
+                first_caption = True
                 for task in args.caption_type:
+                    generated_output = None
                     if task in TASK_TYPE_MAP.keys():
-                        (out_tensor, out_mask_tensor, out_results, out_data) = (
-                            florence_caption_images(
-                                device,
-                                torch_dtype,
-                                [input_image],
-                                args.custom_prompt,
-                                task,
-                                florence2_model,
-                                florence2_processor,
-                                verbose=args.verbose,
-                            )
+                        (
+                            _out_tensor,
+                            _out_mask_tensor,
+                            out_results,
+                            _out_data,
+                        ) = florence_caption_images(
+                            device,
+                            torch_dtype,
+                            [input_image],
+                            args.custom_prompt,
+                            task,
+                            florence2_model,
+                            florence2_processor,
+                            verbose=args.verbose,
                         )
-                        if file_mode == "a":
-                            output_file.write(f"{os.linesep}{os.linesep}{out_results}")
-                        else:
-                            output_file.write(f"{out_results}")
+                        generated_output = out_results
                     elif task in CAPTION_TYPE_MAP.keys():
                         (out) = joy_caption_image(
                             device,
                             input_image,
                             task,
                             args.caption_length,
-                            extra_options,
+                            args.extra_options,
                             args.name_input,
                             args.custom_prompt,
                             clip_model,
@@ -258,13 +274,27 @@ def process_images(
                             args.verbose,
                             autocast,
                         )
-                        if file_mode == "a":
-                            output_file.write(f"{os.linesep}{os.linesep}{out}")
-                        else:
-                            output_file.write(f"{out}")
+                        generated_output = out
                     else:
                         print(f"Invalid caption type: {task}")
                         exit(1)
+
+                    # Write the generated output
+                    if generated_output:
+                        prefix = ""
+                        if file_mode == "a":
+                            # Always add newlines when appending
+                            prefix = f"{os.linesep}{os.linesep}"
+                        elif first_caption:
+                            # Add separator only if static tags were written
+                            if wrote_static_tags:
+                                prefix = ", "
+                        else:
+                            # Add newlines between multiple generated captions in write mode
+                            prefix = f"{os.linesep}{os.linesep}"
+
+                        output_file.write(f"{prefix}{generated_output}")
+                        first_caption = False
 
             # Calculate how long this file took
             file_time = time.time() - file_start_time
