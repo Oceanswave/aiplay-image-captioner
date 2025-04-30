@@ -469,6 +469,10 @@ if __name__ == "__main__":
                 input_path.glob(f"**/*{ext.upper()}")
             )  # Also include uppercase extensions
 
+        # --- Deduplicate the list of found files ---
+        image_files = sorted(list(set(image_files)))
+        # --- End deduplication ---
+
         if not image_files:
             print(
                 f"No image files found in directory: {input_path} (including subdirectories)"
