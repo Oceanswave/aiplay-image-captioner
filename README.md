@@ -58,7 +58,7 @@ python main.py [input_image] [options]
 
 -   `--caption_length <length>`
     -   **Type:** `str`
-    -   **Default:** `"short"`
+    -   **Default:** `"medium-length"`
     -   **Description:** Specifies the desired length for JoyTag/LLaMA captions. Can be a descriptive term or a specific word count (multiples of 10 from 20 to 260).
     -   **Choices:** `any`, `very short`, `short`, `medium-length`, `long`, `very long`, `20`, `30`, ..., `260`
 

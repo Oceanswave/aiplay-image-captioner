@@ -8,6 +8,7 @@ import torch
 import contextlib
 from PIL import Image
 import re
+import hashlib
 
 from modules.joy_two_captioner import (
     caption_image as joy_caption_image,
@@ -37,6 +38,24 @@ else:
 
 print(f"Using device: {device}")
 
+# Helper function to calculate file hash
+def calculate_file_hash(filepath: Path, hash_algo="sha256", buffer_size=65536) -> str:
+    """Calculates the hash of a file."""
+    hasher = hashlib.new(hash_algo)
+    try:
+        with open(filepath, 'rb') as f:
+            while True:
+                data = f.read(buffer_size)
+                if not data:
+                    break
+                hasher.update(data)
+        return hasher.hexdigest()
+    except IOError as e:
+        print(f"Warning: Could not read file {filepath} for hashing: {e}")
+        return ""
+    except Exception as e:
+        print(f"Warning: Error hashing file {filepath}: {e}")
+        return ""
 
 def setup_parser():
     parser = argparse.ArgumentParser(description="Image Captioner")
@@ -58,7 +77,7 @@ def setup_parser():
     parser.add_argument(
         "--caption_length",
         type=str,
-        default="short",
+        default="medium-length",
         choices=CAPTION_LENGTH_CHOICES,
         help="Length of the caption",
     )
@@ -150,7 +169,7 @@ def process_images(
     skipped_count = 0
     appended_count = 0
     error_count = 0
-    total_count = len(image_files)
+    total_count = len(images)
 
     # Time tracking variables
     start_time = time.time()
@@ -162,7 +181,7 @@ def process_images(
             return "Unknown"
         return str(timedelta(seconds=int(seconds)))
 
-    for idx, image_path in enumerate(image_files, 1):
+    for idx, image_path in enumerate(images, 1):
         file_start_time = time.time()
 
         # Create output file path with same name but .txt extension
@@ -337,7 +356,7 @@ def process_images(
             print(f"{message}{' ' * (os.get_terminal_size().columns - len(message))}")
 
             # if there's only one image, raise the error
-            if len(image_files) == 1:
+            if len(images) == 1:
                 raise e
             else:
                 continue
@@ -457,6 +476,37 @@ if __name__ == "__main__":
             exit(1)
 
         print(f"Found {len(image_files)} images in {input_path} and its subdirectories")
+
+        # --- Check for duplicate images based on hash ---
+        print("Checking for duplicate images (this may take a moment)...")
+        image_hashes = {}
+        for img_path in image_files:
+            file_hash = calculate_file_hash(img_path)
+            if file_hash:
+                if file_hash not in image_hashes:
+                    image_hashes[file_hash] = []
+                image_hashes[file_hash].append(img_path)
+
+        duplicates_found = False
+        for file_hash, paths in image_hashes.items():
+            if len(paths) > 1:
+                if not duplicates_found:
+                    print("\n--- Duplicate Image Warnings ---")
+                    duplicates_found = True
+                print(f"Warning: The following images appear to be identical (Hash: {file_hash[:8]}...):")
+                for p in paths:
+                    try:
+                        # Attempt to show relative path if possible
+                        relative_p = p.relative_to(input_path)
+                        print(f"  - {relative_p}")
+                    except ValueError:
+                        # Fallback to absolute path if not under input_path
+                        print(f"  - {p}")
+        if duplicates_found:
+            print("--- End Duplicate Warnings ---\n")
+        else:
+             print("No duplicate images found.")
+        # --- End duplicate check ---
 
         process_images(
             input_path,
