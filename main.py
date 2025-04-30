@@ -137,6 +137,7 @@ def process_images(
     input_path: Path,
     images: List[Path],
     args: argparse.Namespace,
+    mapped_extra_options: List[str],
     florence2_model,
     florence2_processor,
     clip_model,
@@ -264,7 +265,7 @@ def process_images(
                             input_image,
                             task,
                             args.caption_length,
-                            args.extra_options,
+                            mapped_extra_options,
                             args.name_input,
                             args.custom_prompt,
                             clip_model,
@@ -340,16 +341,14 @@ if __name__ == "__main__":
         exit(0)
 
     # Map extra option indices to actual options
+    mapped_extra_options = []
     if args.extra_options:
-        extra_options = []
         for idx in args.extra_options:
             if 0 <= idx < len(EXTRA_OPTIONS_LIST):
-                extra_options.append(EXTRA_OPTIONS_LIST[idx])
+                mapped_extra_options.append(EXTRA_OPTIONS_LIST[idx])
             else:
                 print(f"Invalid extra option index: {idx}")
                 exit(1)
-    else:
-        extra_options = []
 
     # test to see if the input_image exists and is a file or directory
     if not args.input_image or not Path(args.input_image).exists():
@@ -398,6 +397,7 @@ if __name__ == "__main__":
             input_path,
             image_files,
             args,
+            mapped_extra_options,
             florence2_model,
             florence2_processor,
             clip_model,
@@ -436,6 +436,7 @@ if __name__ == "__main__":
             input_path,
             image_files,
             args,
+            mapped_extra_options,
             florence2_model,
             florence2_processor,
             clip_model,
