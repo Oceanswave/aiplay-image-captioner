@@ -7,6 +7,7 @@ from typing import List
 import torch
 import contextlib
 from PIL import Image
+import re
 
 from modules.joy_two_captioner import (
     caption_image as joy_caption_image,
@@ -240,6 +241,13 @@ def process_images(
                     wrote_static_tags = True
 
                 first_caption = True
+                # Define task types that should be output as comma-separated tags
+                tag_tasks = {
+                    "Booru tag list",
+                    "Booru-like tag list",
+                    "prompt_gen_tags", # Florence-2 tag generation
+                }
+
                 for task in args.caption_type:
                     generated_output = None
                     if task in TASK_TYPE_MAP.keys():
@@ -260,7 +268,7 @@ def process_images(
                         )
                         generated_output = out_results
                     elif task in CAPTION_TYPE_MAP.keys():
-                        (out) = joy_caption_image(
+                        prompt_used, caption_out = joy_caption_image(
                             device,
                             input_image,
                             task,
@@ -275,12 +283,30 @@ def process_images(
                             args.verbose,
                             autocast,
                         )
-                        generated_output = out
+                        generated_output = caption_out # Only use the caption part
                     else:
                         print(f"Invalid caption type: {task}")
                         exit(1)
 
-                    # Write the generated output
+                    # Post-process if it's a tag task
+                    if task in tag_tasks and generated_output:
+                        # Remove potential introductory lines (like "Here's a list...")
+                        lines = generated_output.strip().split('\n')
+                        # Heuristic: find the first line that likely contains tags (e.g., starts with '*' or '-') or just take all non-empty lines
+                        tag_lines = [line for line in lines if line.strip()]
+                        if tag_lines and any(phrase in tag_lines[0] for phrase in ["Here's a list", "Tags:", "list of Booru tags"]):
+                             tag_lines = tag_lines[1:] # Skip potential intro line
+
+                        cleaned_tags = []
+                        for line in tag_lines:
+                            # Remove leading/trailing whitespace and bullet points/hyphens
+                            cleaned_line = line.strip().lstrip('*- ').strip()
+                            if cleaned_line:
+                                # Split potentially comma-separated tags already on one line
+                                cleaned_tags.extend([tag.strip() for tag in cleaned_line.split(',') if tag.strip()])
+                        generated_output = ", ".join(cleaned_tags)
+
+                    # Write the generated output (potentially cleaned)
                     if generated_output:
                         prefix = ""
                         if file_mode == "a":
