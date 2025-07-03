@@ -22,6 +22,11 @@ from modules.florence_two_captioner import (
 )
 from modules.florence_two import *
 
+from modules.openai_captioner import (
+    caption_image_with_openai,
+    load_openai_models,
+)
+
 # Determine the device to use (GPU, MPS, or CPU)
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -71,7 +76,7 @@ def setup_parser():
         type=str,
         nargs="+",
         default=["Descriptive"],
-        choices=list(CAPTION_TYPE_MAP.keys()) + list(TASK_TYPE_MAP.keys()),
+        choices=list(CAPTION_TYPE_MAP.keys()) + list(TASK_TYPE_MAP.keys()) + ["openai"],
         help="Types of captions to generate (multiple values supported)",
     )
     parser.add_argument(
@@ -155,6 +160,30 @@ def setup_parser():
         action="store_true",
         help="Output processed images and captions to ./output with sequential names",
     )
+    parser.add_argument(
+        "--openai_endpoint",
+        type=str,
+        default="",
+        help="OpenAI-compatible API endpoint URL (required for 'openai' caption type)",
+    )
+    parser.add_argument(
+        "--openai_api_key",
+        type=str,
+        default="",
+        help="API key for OpenAI-compatible endpoint (required for 'openai' caption type)",
+    )
+    parser.add_argument(
+        "--openai_model",
+        type=str,
+        default="gpt-4o",
+        help="Model name for OpenAI-compatible API (default: gpt-4o)",
+    )
+    parser.add_argument(
+        "--openai_prompt",
+        type=str,
+        default="Write a short list of Booru-like tags for this image.",
+        help="Prompt to send with image to OpenAI-compatible API",
+    )
 
     return parser
 
@@ -192,6 +221,21 @@ def process_images(
             return "Unknown"
         return str(timedelta(seconds=int(seconds)))
 
+    # Function to create progress bar
+    def create_progress_bar(current, total, width=50):
+        progress = current / total if total > 0 else 0
+        filled = int(width * progress)
+        bar = "█" * filled + "░" * (width - filled)
+        percentage = progress * 100
+        return f"[{bar}] {percentage:.1f}%"
+
+    # Print initial status
+    print(f"Starting to process {total_count} image(s)...")
+    print(f"Caption types: {', '.join(args.caption_type)}")
+    if args.flat:
+        print(f"Output mode: Flat (files will be saved to ./output/)")
+    print("-" * 80)
+
     for idx, image_path in enumerate(images, 1):
         file_start_time = time.time()
 
@@ -222,7 +266,7 @@ def process_images(
                 processed_count += 1
             else:
                 # Print skipped files on a new line to maintain history
-                print(f"Skipped: {image_path.name} (file already exists)")
+                print(f"⏭️  Skipped: {image_path.name} (file already exists)")
                 skipped_count += 1
 
                 # Calculate and display time estimates
@@ -232,12 +276,9 @@ def process_images(
                     remaining_files = total_count - idx
                     est_time = avg_time * remaining_files
 
-                    # Clear line and show progress with time estimate
-                    print(" " * 150, end="\r")
-                    print(
-                        f"Progress: {idx}/{total_count} [{processed_count} processed, {appended_count} appended, {skipped_count} skipped, {error_count} errors] - Elapsed: {format_time(elapsed)} - Remaining: {format_time(est_time)}",
-                        end="\r",
-                    )
+                    # Show progress bar and status
+                    progress_bar = create_progress_bar(idx, total_count)
+                    print(f"\r{progress_bar} | {idx}/{total_count} | Elapsed: {format_time(elapsed)} | Remaining: {format_time(est_time)}", end="")
 
                 continue
         else:
@@ -254,14 +295,23 @@ def process_images(
             )  # +1 because we're including the current file
             est_time = format_time(avg_time * remaining_files)
 
-        # Show which file is currently being processed (with carriage return)
+        # Show which file is currently being processed
         if input_path.is_dir():
             relative_path = image_path.relative_to(input_path)
         else:
             relative_path = image_path
-        status = f"Working: {action} {relative_path} ({idx}/{total_count}) - Elapsed: {format_time(elapsed)} - Remaining: {est_time}"
-        padding = " " * 50  # Much more padding to ensure the line is cleared
-        print(f"{status}{padding}", end="\r")
+        
+        # Create progress bar
+        progress_bar = create_progress_bar(idx, total_count)
+        
+        # Show detailed status
+        status = f"\r{progress_bar} | {idx}/{total_count} | 🔄 {action} {relative_path}"
+        if est_time != "Calculating...":
+            status += f" | ⏱️  Elapsed: {format_time(elapsed)} | ⏳ Remaining: {est_time}"
+        
+        # Clear line and print status
+        print(" " * 150, end="\r")
+        print(status, end="")
 
         try:
             input_image = Image.open(image_path)
@@ -290,7 +340,12 @@ def process_images(
                     "prompt_gen_tags", # Florence-2 tag generation
                 }
 
-                for task in args.caption_type:
+                for task_idx, task in enumerate(args.caption_type, 1):
+                    # Show caption type progress
+                    if len(args.caption_type) > 1:
+                        caption_progress = f" | Caption {task_idx}/{len(args.caption_type)}: {task}"
+                        print(f"{caption_progress}", end="")
+                    
                     generated_output = None
                     if task in TASK_TYPE_MAP.keys():
                         (
@@ -326,6 +381,15 @@ def process_images(
                             autocast,
                         )
                         generated_output = caption_out # Only use the caption part
+                    elif task == "openai":
+                        generated_output = caption_image_with_openai(
+                            input_image,
+                            args.openai_endpoint,
+                            args.openai_api_key,
+                            args.openai_model,
+                            args.openai_prompt,
+                            verbose=args.verbose,
+                        )
                     else:
                         print(f"Invalid caption type: {task}")
                         exit(1)
@@ -369,14 +433,16 @@ def process_images(
             file_time = time.time() - file_start_time
             processed_time += file_time
 
-            # Then print completed file on a new line to maintain history
-            message = f"Completed: {action} {image_path.name} in {format_time(file_time)}"
-            print(f"{message}{' ' * (os.get_terminal_size().columns - len(message))}")
+            # Print completed file on a new line
+            print()  # Move to next line
+            message = f"✅ Completed: {action} {image_path.name} in {format_time(file_time)}"
+            print(message)
 
         except Exception as e:
             error_count += 1
-            message = f"Error: {image_path.name} - {str(e)}"
-            print(f"{message}{' ' * (os.get_terminal_size().columns - len(message))}")
+            print()  # Move to next line
+            message = f"❌ Error: {image_path.name} - {str(e)}"
+            print(message)
 
             # if there's only one image, raise the error
             if len(images) == 1:
@@ -387,15 +453,25 @@ def process_images(
     # Calculate total elapsed time
     total_elapsed = time.time() - start_time
 
-    # Print summary at the end
+    # Print final summary
+    print("\n" + "=" * 80)
     if input_path.is_dir():
-        print(f"\nFinished processing images in {input_path}")
+        print(f"🎉 Finished processing images in {input_path}")
     else:
-        print(f"\nFinished processing image {input_path}")
-    print(
-        f"Processed: {processed_count}, Appended: {appended_count}, Skipped: {skipped_count}, Errors: {error_count}, Total: {total_count}"
-    )
-    print(f"Total time: {format_time(total_elapsed)}")
+        print(f"🎉 Finished processing image {input_path}")
+    
+    print(f"📊 Summary:")
+    print(f"   ✅ Processed: {processed_count}")
+    print(f"   📝 Appended: {appended_count}")
+    print(f"   ⏭️  Skipped: {skipped_count}")
+    print(f"   ❌ Errors: {error_count}")
+    print(f"   📁 Total: {total_count}")
+    print(f"   ⏱️  Total time: {format_time(total_elapsed)}")
+    
+    if args.flat:
+        print(f"   📂 Output location: ./output/")
+    
+    print("=" * 80)
 
 
 if __name__ == "__main__":
@@ -427,6 +503,15 @@ if __name__ == "__main__":
     if args.input_image and Path(args.input_image).is_dir():
         input_image_type = "directory"
 
+    # Display initial processing message
+    print("🚀 AIPlay Image Captioner Starting...")
+    print(f"📁 Input: {args.input_image}")
+    print(f"🎯 Caption types: {', '.join(args.caption_type)}")
+    if args.flat:
+        print("📂 Output mode: Flat (sequential naming in ./output/)")
+    print("⏳ Loading models and preparing to process files...")
+    print("-" * 80)
+
     # Load models
     checkpoint_path = Path(args.checkpoint_path)
 
@@ -436,6 +521,15 @@ if __name__ == "__main__":
     image_adapter = None
     florence2_model = None
     florence2_processor = None
+
+    # Validate OpenAI parameters if OpenAI caption type is selected
+    if "openai" in args.caption_type:
+        if not args.openai_endpoint:
+            print("Error: --openai_endpoint is required when using 'openai' caption type")
+            exit(1)
+        if not args.openai_api_key:
+            print("Error: --openai_api_key is required when using 'openai' caption type")
+            exit(1)
 
     if any(task in CAPTION_TYPE_MAP.keys() for task in args.caption_type):
         (
@@ -451,6 +545,10 @@ if __name__ == "__main__":
         (florence2_model, florence2_processor) = load_florence_models(
             device, torch_dtype, checkpoint_path, args.florence2_model_id, args.verbose
         )
+
+    # Load OpenAI models (placeholder for consistency)
+    if "openai" in args.caption_type:
+        load_openai_models()
 
     # Process single image
     if input_image_type == "single":
@@ -507,12 +605,27 @@ if __name__ == "__main__":
         # --- Check for duplicate images based on hash ---
         print("Checking for duplicate images (this may take a moment)...")
         image_hashes = {}
-        for img_path in image_files:
+        
+        # Create progress bar for duplicate checking
+        def create_duplicate_progress_bar(current, total, width=40):
+            progress = current / total if total > 0 else 0
+            filled = int(width * progress)
+            bar = "█" * filled + "░" * (width - filled)
+            percentage = progress * 100
+            return f"[{bar}] {percentage:.1f}%"
+        
+        for hash_idx, img_path in enumerate(image_files, 1):
+            # Show progress for hash calculation
+            progress_bar = create_duplicate_progress_bar(hash_idx, len(image_files))
+            print(f"\r{progress_bar} | Checking hash {hash_idx}/{len(image_files)}: {img_path.name}", end="")
+            
             file_hash = calculate_file_hash(img_path)
             if file_hash:
                 if file_hash not in image_hashes:
                     image_hashes[file_hash] = []
                 image_hashes[file_hash].append(img_path)
+        
+        print()  # Move to next line after progress bar
 
         duplicates_found = False
         for file_hash, paths in image_hashes.items():
@@ -532,7 +645,7 @@ if __name__ == "__main__":
         if duplicates_found:
             print("--- End Duplicate Warnings ---\n")
         else:
-             print("No duplicate images found.")
+             print("✅ No duplicate images found.")
         # --- End duplicate check ---
 
         process_images(

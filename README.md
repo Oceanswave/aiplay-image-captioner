@@ -50,6 +50,8 @@ python main.py [input_image] [options]
             -   `prompt_gen_mixed_caption`
             -   `prompt_gen_analyze`
             -   `prompt_gen_mixed_caption_plus`
+        -   **OpenAI-Compatible Types:**
+            -   `openai`
 
 -   `--tags <tag1> [<tag2> ...]` / `-t <tag1> [<tag2> ...]`
     -   **Type:** `str` (list)
@@ -108,6 +110,26 @@ python main.py [input_image] [options]
     -   **Action:** `store_true`
     -   **Description:** Show more detailed information during processing, including model loading details and intermediate steps if applicable.
 
+-   `--openai_endpoint <url>`
+    -   **Type:** `str`
+    -   **Default:** `""`
+    -   **Description:** URL of the OpenAI-compatible API endpoint (required when using `openai` caption type).
+
+-   `--openai_api_key <key>`
+    -   **Type:** `str`
+    -   **Default:** `""`
+    -   **Description:** API key for the OpenAI-compatible endpoint (required when using `openai` caption type).
+
+-   `--openai_model <model>`
+    -   **Type:** `str`
+    -   **Default:** `"gpt-4o"`
+    -   **Description:** Model name to use with the OpenAI-compatible API.
+
+-   `--openai_prompt <prompt>`
+    -   **Type:** `str`
+    -   **Default:** `"Please describe this image in detail."`
+    -   **Description:** Custom prompt to send with the image to the OpenAI-compatible API.
+
 ## Examples
 
 **Caption a single image with default descriptive settings:**
@@ -132,6 +154,18 @@ python main.py character.png --caption_type "Descriptive (Informal)" --caption_l
 
 ```bash
 python main.py document.png --caption_type ocr
+```
+
+**Generate captions using an OpenAI-compatible API:**
+
+```bash
+python main.py image.jpg --caption_type openai --openai_endpoint "https://api.openai.com/v1/chat/completions" --openai_api_key "your-api-key-here"
+```
+
+**Generate captions using a custom OpenAI-compatible endpoint with a specific model and prompt:**
+
+```bash
+python main.py images/ --caption_type openai --openai_endpoint "https://your-endpoint.com/v1/chat/completions" --openai_api_key "your-key" --openai_model "gpt-4-vision-preview" --openai_prompt "Describe this image in a creative and engaging way."
 ```
 
 **List available extra options:**

@@ -181,3 +181,4 @@ output
 image.*
 test_image.*
 test_images
+*.sh
