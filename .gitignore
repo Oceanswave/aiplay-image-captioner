@@ -176,6 +176,7 @@ cython_debug/
 # ignore the models
 models
 !models/README.md
+output
 
 image.*
 test_image.*

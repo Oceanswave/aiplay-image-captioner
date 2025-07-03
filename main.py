@@ -149,6 +149,12 @@ def setup_parser():
         default=[],
         help="Static tags to prepend to the output file, comma-separated.",
     )
+    parser.add_argument(
+        "--flat",
+        "-f",
+        action="store_true",
+        help="Output processed images and captions to ./output with sequential names",
+    )
 
     return parser
 
@@ -171,6 +177,11 @@ def process_images(
     error_count = 0
     total_count = len(images)
 
+    # Create output directory if flat mode is enabled
+    if args.flat:
+        output_dir = Path("./output")
+        output_dir.mkdir(exist_ok=True)
+
     # Time tracking variables
     start_time = time.time()
     processed_time = 0
@@ -184,8 +195,16 @@ def process_images(
     for idx, image_path in enumerate(images, 1):
         file_start_time = time.time()
 
-        # Create output file path with same name but .txt extension
-        output_file_path = image_path.with_suffix(".txt")
+        # Create output file path
+        if args.flat:
+            # Use sequential numbering for flat output
+            seq_num = f"{idx:03d}"
+            output_file_path = Path("./output") / f"{seq_num}.txt"
+            output_image_path = Path("./output") / f"{seq_num}{image_path.suffix}"
+        else:
+            # Use original path structure
+            output_file_path = image_path.with_suffix(".txt")
+            output_image_path = image_path
 
         # Check if output file exists
         file_exists = output_file_path.exists()
@@ -250,6 +269,10 @@ def process_images(
             # Convert RGBA images to RGB to avoid channel mismatch
             if input_image.mode == "RGBA":
                 input_image = input_image.convert("RGB")
+
+            # If in flat mode, copy the image to the output directory
+            if args.flat:
+                input_image.save(output_image_path)
 
             # Process each caption type
             with open(output_file_path, file_mode, encoding="utf-8") as output_file:
