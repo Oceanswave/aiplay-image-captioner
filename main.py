@@ -433,10 +433,6 @@ def process_images(
             file_time = time.time() - file_start_time
             processed_time += file_time
 
-            # Print completed file on a new line
-            print()  # Move to next line
-            message = f"✅ Completed: {action} {image_path.name} in {format_time(file_time)}"
-            print(message)
 
         except Exception as e:
             error_count += 1
