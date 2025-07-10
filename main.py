@@ -9,6 +9,7 @@ import contextlib
 from PIL import Image
 import re
 import hashlib
+import yaml
 
 from modules.joy_two_captioner import (
     caption_image as joy_caption_image,
@@ -61,6 +62,51 @@ def calculate_file_hash(filepath: Path, hash_algo="sha256", buffer_size=65536) -
     except Exception as e:
         print(f"Warning: Error hashing file {filepath}: {e}")
         return ""
+
+def load_yaml_config(config_path: str) -> dict:
+    """Load configuration from a YAML file."""
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        return config or {}
+    except FileNotFoundError:
+        print(f"Warning: Config file not found: {config_path}")
+        return {}
+    except yaml.YAMLError as e:
+        print(f"Error parsing YAML config file {config_path}: {e}")
+        return {}
+
+def create_sample_config(output_path: str = "config.yaml"):
+    """Create a sample YAML configuration file."""
+    sample_config = {
+        "caption_type": ["Descriptive"],
+        "caption_length": "medium-length",
+        "extra_options": [11, 14],
+        "name_input": "",
+        "custom_prompt": "",
+        "checkpoint_path": "models",
+        "llm_model_id": "unsloth/Meta-Llama-3.1-8B-Instruct",
+        "florence2_model_id": "MiaoshouAI/Florence-2-large-PromptGen-v2.0",
+        "overwrite": False,
+        "append": False,
+        "verbose": False,
+        "tags": [],
+        "flat": False,
+        "openai_endpoint": "",
+        "openai_api_key": "",
+        "openai_model": "gpt-4o",
+        "openai_prompt": "Write a medium-length list of Booru-like tags for this image.",
+        "include_image_name": False,
+        "include_image_path": 0,
+        "output_path": "./output"
+    }
+    
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            yaml.dump(sample_config, f, default_flow_style=False, sort_keys=False)
+        print(f"Sample configuration file created: {output_path}")
+    except Exception as e:
+        print(f"Error creating sample config file: {e}")
 
 def setup_parser():
     parser = argparse.ArgumentParser(description="Image Captioner")
@@ -181,8 +227,36 @@ def setup_parser():
     parser.add_argument(
         "--openai_prompt",
         type=str,
-        default="Write a short list of Booru-like tags for this image.",
+        default="Write a medium-length list of Booru-like tags for this image.",
         help="Prompt to send with image to OpenAI-compatible API",
+    )
+    parser.add_argument(
+        "--include_image_name",
+        action="store_true",
+        help="True if the image name should be included in the output",
+    )
+    parser.add_argument(
+        "--include_image_path",
+        type=int,
+        default=0,
+        help="Include the specified number of segments of the image path in the output",
+    )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        default="./output",
+        help="Output directory for caption files (default: ./output)",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to YAML configuration file",
+    )
+    parser.add_argument(
+        "--create_config",
+        type=str,
+        metavar="FILENAME",
+        help="Create a sample YAML configuration file",
     )
 
     return parser
@@ -206,10 +280,9 @@ def process_images(
     error_count = 0
     total_count = len(images)
 
-    # Create output directory if flat mode is enabled
-    if args.flat:
-        output_dir = Path("./output")
-        output_dir.mkdir(exist_ok=True)
+    # Create output directory
+    output_dir = Path(args.output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Time tracking variables
     start_time = time.time()
@@ -232,8 +305,9 @@ def process_images(
     # Print initial status
     print(f"Starting to process {total_count} image(s)...")
     print(f"Caption types: {', '.join(args.caption_type)}")
+    print(f"Output directory: {args.output_path}")
     if args.flat:
-        print(f"Output mode: Flat (files will be saved to ./output/)")
+        print(f"Output mode: Flat (sequential naming)")
     print("-" * 80)
 
     for idx, image_path in enumerate(images, 1):
@@ -243,12 +317,21 @@ def process_images(
         if args.flat:
             # Use sequential numbering for flat output
             seq_num = f"{idx:03d}"
-            output_file_path = Path("./output") / f"{seq_num}.txt"
-            output_image_path = Path("./output") / f"{seq_num}{image_path.suffix}"
+            output_file_path = output_dir / f"{seq_num}.txt"
+            output_image_path = output_dir / f"{seq_num}{image_path.suffix}"
         else:
-            # Use original path structure
-            output_file_path = image_path.with_suffix(".txt")
-            output_image_path = image_path
+            # Use output directory while preserving relative path structure
+            if input_path.is_dir():
+                # For directory input, preserve relative path structure
+                relative_path = image_path.relative_to(input_path)
+                output_file_path = output_dir / relative_path.with_suffix(".txt")
+                output_image_path = image_path  # Keep original image path
+                # Ensure the output directory structure exists
+                output_file_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                # For single file input, just use the filename
+                output_file_path = output_dir / f"{image_path.stem}.txt"
+                output_image_path = image_path  # Keep original image path
 
         # Check if output file exists
         file_exists = output_file_path.exists()
@@ -325,95 +408,119 @@ def process_images(
                 input_image.save(output_image_path)
 
             # Process each caption type
-            with open(output_file_path, file_mode, encoding="utf-8") as output_file:
-                # Write static tags first if in write/overwrite mode and tags are provided
-                wrote_static_tags = False
-                if file_mode == "w" and args.tags:
-                    output_file.write(", ".join(args.tags))
-                    wrote_static_tags = True
+            # Collect all generated outputs before writing to file
+            all_generated_outputs = []
+            wrote_static_tags = False
+            
+            # Define task types that should be output as comma-separated tags
+            tag_tasks = {
+                "Booru tag list",
+                "Booru-like tag list",
+                "prompt_gen_tags", # Florence-2 tag generation
+            }
 
-                first_caption = True
-                # Define task types that should be output as comma-separated tags
-                tag_tasks = {
-                    "Booru tag list",
-                    "Booru-like tag list",
-                    "prompt_gen_tags", # Florence-2 tag generation
-                }
+            for task_idx, task in enumerate(args.caption_type, 1):
+                # Show caption type progress
+                if len(args.caption_type) > 1:
+                    caption_progress = f" | Caption {task_idx}/{len(args.caption_type)}: {task}"
+                    print(f"{caption_progress}", end="")
+                
+                generated_output = None
+                if task in TASK_TYPE_MAP.keys():
+                    (
+                        _out_tensor,
+                        _out_mask_tensor,
+                        out_results,
+                        _out_data,
+                    ) = florence_caption_images(
+                        device,
+                        torch_dtype,
+                        [input_image],
+                        args.custom_prompt,
+                        task,
+                        florence2_model,
+                        florence2_processor,
+                        verbose=args.verbose,
+                    )
+                    generated_output = out_results
+                elif task in CAPTION_TYPE_MAP.keys():
+                    prompt_used, caption_out = joy_caption_image(
+                        device,
+                        input_image,
+                        task,
+                        args.caption_length,
+                        mapped_extra_options,
+                        args.name_input,
+                        args.custom_prompt,
+                        clip_model,
+                        tokenizer,
+                        text_model,
+                        image_adapter,
+                        args.verbose,
+                        autocast,
+                    )
+                    generated_output = caption_out # Only use the caption part
+                elif task == "openai":
+                    openai_prompt = args.openai_prompt
+                    generated_output = caption_image_with_openai(
+                        input_image,
+                        args.openai_endpoint,
+                        args.openai_api_key,
+                        args.openai_model,
+                        args.openai_prompt,
+                        verbose=args.verbose,
+                    )
+                else:
+                    print(f"Invalid caption type: {task}")
+                    exit(1)
 
-                for task_idx, task in enumerate(args.caption_type, 1):
-                    # Show caption type progress
-                    if len(args.caption_type) > 1:
-                        caption_progress = f" | Caption {task_idx}/{len(args.caption_type)}: {task}"
-                        print(f"{caption_progress}", end="")
+                # Post-process if it's a tag task
+                if task in tag_tasks and generated_output:
+                    # Ensure generated_output is a string
+                    if isinstance(generated_output, list):
+                        generated_output = generated_output[0] if generated_output else ""
                     
-                    generated_output = None
-                    if task in TASK_TYPE_MAP.keys():
-                        (
-                            _out_tensor,
-                            _out_mask_tensor,
-                            out_results,
-                            _out_data,
-                        ) = florence_caption_images(
-                            device,
-                            torch_dtype,
-                            [input_image],
-                            args.custom_prompt,
-                            task,
-                            florence2_model,
-                            florence2_processor,
-                            verbose=args.verbose,
-                        )
-                        generated_output = out_results
-                    elif task in CAPTION_TYPE_MAP.keys():
-                        prompt_used, caption_out = joy_caption_image(
-                            device,
-                            input_image,
-                            task,
-                            args.caption_length,
-                            mapped_extra_options,
-                            args.name_input,
-                            args.custom_prompt,
-                            clip_model,
-                            tokenizer,
-                            text_model,
-                            image_adapter,
-                            args.verbose,
-                            autocast,
-                        )
-                        generated_output = caption_out # Only use the caption part
-                    elif task == "openai":
-                        generated_output = caption_image_with_openai(
-                            input_image,
-                            args.openai_endpoint,
-                            args.openai_api_key,
-                            args.openai_model,
-                            args.openai_prompt,
-                            verbose=args.verbose,
-                        )
-                    else:
-                        print(f"Invalid caption type: {task}")
-                        exit(1)
+                    # Remove potential introductory lines (like "Here's a list...")
+                    lines = generated_output.strip().split('\n')
+                    # Heuristic: find the first line that likely contains tags (e.g., starts with '*' or '-') or just take all non-empty lines
+                    tag_lines = [line for line in lines if line.strip()]
+                    if tag_lines and any(phrase in tag_lines[0] for phrase in ["Here's a list", "Tags:", "list of Booru tags"]):
+                         tag_lines = tag_lines[1:] # Skip potential intro line
 
-                    # Post-process if it's a tag task
-                    if task in tag_tasks and generated_output:
-                        # Remove potential introductory lines (like "Here's a list...")
-                        lines = generated_output.strip().split('\n')
-                        # Heuristic: find the first line that likely contains tags (e.g., starts with '*' or '-') or just take all non-empty lines
-                        tag_lines = [line for line in lines if line.strip()]
-                        if tag_lines and any(phrase in tag_lines[0] for phrase in ["Here's a list", "Tags:", "list of Booru tags"]):
-                             tag_lines = tag_lines[1:] # Skip potential intro line
+                    cleaned_tags = []
+                    for line in tag_lines:
+                        # Remove leading/trailing whitespace and bullet points/hyphens
+                        cleaned_line = line.strip().lstrip('*- ').strip()
+                        if cleaned_line:
+                            # Split potentially comma-separated tags already on one line
+                            cleaned_tags.extend([tag.strip() for tag in cleaned_line.split(',') if tag.strip()])
+                    generated_output = ", ".join(cleaned_tags)
 
-                        cleaned_tags = []
-                        for line in tag_lines:
-                            # Remove leading/trailing whitespace and bullet points/hyphens
-                            cleaned_line = line.strip().lstrip('*- ').strip()
-                            if cleaned_line:
-                                # Split potentially comma-separated tags already on one line
-                                cleaned_tags.extend([tag.strip() for tag in cleaned_line.split(',') if tag.strip()])
-                        generated_output = ", ".join(cleaned_tags)
+                # Collect the generated output if it's valid
+                if generated_output:
+                    # Ensure generated_output is a string
+                    if isinstance(generated_output, list):
+                        generated_output = generated_output[0] if generated_output else ""
+                    
+                    # Apply image name and path modifications
+                    if args.include_image_name:
+                        generated_output = f"{generated_output}, {image_path.name}"
+                    if args.include_image_path:
+                        path_segments = image_path.parts[-args.include_image_path:]
+                        generated_output = f"{generated_output}, {', '.join(path_segments)}"
+                    
+                    all_generated_outputs.append(generated_output)
 
-                    # Write the generated output (potentially cleaned)
-                    if generated_output:
+            # Write to file if we have valid generated content (do NOT write for static tags alone)
+            if all_generated_outputs:
+                with open(output_file_path, file_mode, encoding="utf-8") as output_file:
+                    # Write static tags first if in write/overwrite mode and tags are provided
+                    if file_mode == "w" and args.tags:
+                        output_file.write(", ".join(args.tags))
+                        wrote_static_tags = True
+
+                    first_caption = True
+                    for generated_output in all_generated_outputs:
                         prefix = ""
                         if file_mode == "a":
                             # Always add newlines when appending
@@ -464,8 +571,7 @@ def process_images(
     print(f"   📁 Total: {total_count}")
     print(f"   ⏱️  Total time: {format_time(total_elapsed)}")
     
-    if args.flat:
-        print(f"   📂 Output location: ./output/")
+    print(f"   📂 Output location: {args.output_path}")
     
     print("=" * 80)
 
@@ -473,6 +579,19 @@ def process_images(
 if __name__ == "__main__":
     parser = setup_parser()
     args = parser.parse_args()
+    
+    # Handle create_config argument
+    if args.create_config:
+        create_sample_config(args.create_config)
+        exit(0)
+
+    # Load configuration from YAML file if specified
+    if args.config:
+        config = load_yaml_config(args.config)
+        # Apply config values to args if they're not already set
+        for key, value in config.items():
+            if hasattr(args, key) and getattr(args, key) == parser.get_default(key):
+                setattr(args, key, value)
 
     if args.list_extra_options:
         print("Available extra options:")

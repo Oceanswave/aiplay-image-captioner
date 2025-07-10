@@ -69,7 +69,8 @@ def caption_image_with_openai(
             }
         ],
         "max_tokens": 1000,
-        "temperature": 0.7
+        "temperature": 0.6,
+        "top_p": 0.9,
     }
     
     headers = {

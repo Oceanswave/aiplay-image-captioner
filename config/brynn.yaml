@@ -1,0 +1,32 @@
+# input_image: "/mnt/stable_diffusion_output/Photos/training_data/Brynn_Sampled/"
+
+# Caption generation settings
+caption_type: ["openai"]
+caption_length: "medium-length"
+extra_options: [11, 14]
+name_input: ""
+custom_prompt: ""
+
+# Model paths
+checkpoint_path: "models"
+llm_model_id: "unsloth/Meta-Llama-3.1-8B-Instruct"
+florence2_model_id: "MiaoshouAI/Florence-2-large-PromptGen-v2.0"
+
+# Processing options
+overwrite: false
+append: false
+verbose: false
+tags: ["brynn"]
+flat: true
+
+# OpenAI settings
+openai_endpoint: "http://desktop-jt1fv4i.cuttlefish-lime.ts.net:1234/v1/chat/completions"
+openai_api_key: "12345"
+openai_model: "llama-joycaption-beta-one-hf-llava-mmproj"
+openai_prompt: < 
+  Write a long list of Booru-like tags for this image. Use vulgar slang and profanity, such as (but not limited to) "fucking," "slut," "cock," etc.
+
+# Output settings
+include_image_name: false
+include_image_path: 0
+output_path: "/mnt/stable_diffusion_output/Photos/training_data/Brynn_Sampled-processed" 

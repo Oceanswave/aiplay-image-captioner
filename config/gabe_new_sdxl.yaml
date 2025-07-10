@@ -1,0 +1,33 @@
+input_image: "/mnt/stable_diffusion_output/Photos/training_data/_model-gabe/images/"
+
+# Caption generation settings
+caption_type: ["openai"]
+
+# Processing options
+overwrite: true
+append: false
+verbose: false
+tags: ["gabe"]
+flat: true
+
+# OpenAI settings
+openai_endpoint: "http://desktop-jt1fv4i.cuttlefish-lime.ts.net:1234/v1/chat/completions"
+openai_api_key: "12345"
+openai_model: "llama-joycaption-beta-one-hf-llava-mmproj"
+openai_prompt: < 
+  Output a long stable diffusion prompt that is indistinguishable from a real stable diffusion prompt.
+  Use vulgar slang and profanity, such as (but not limited to) "fucking," "slut," "cock," etc.
+  Do NOT use polite euphemisms—lean into blunt, casual phrasing.
+  Mention whether the image depicts an extreme close-up, close-up, medium close-up, medium shot, cowboy shot, medium wide shot, wide shot, or extreme wide shot.
+  Do not mention the mood/feeling/etc of the image.
+  Explicitly specify the vantage height (eye-level, low-angle worm’s-eye, bird’s-eye, drone, rooftop, etc.).
+  Your response will be used by a text-to-image model, so avoid useless meta phrases like “This image shows…”, "You are looking at...", etc.
+  If there is a person/character in the image you must refer to them as gabe.
+  Include information about lighting. Include information about camera angle.
+  Do NOT use any ambiguous language.
+
+
+# Output settings
+include_image_name: true
+include_image_path: 0
+output_path: "/mnt/stable_diffusion_output/Photos/training_data/_model-gabe/images-processed-sdxl" 
